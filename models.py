@@ -33,6 +33,27 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
     reservas = relationship("Reserva", back_populates="usuario")
+class Reserva(Base):
+    __tablename__ = "reservas"
+
+    id_reserva = Column(Integer, primary_key=True, index=True)
+    id_usuario = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    isbn_libro = Column(String, ForeignKey("libros.isbn"), nullable=False)
+    fecha_reserva = Column(Date, default=date.today)
+    fecha_entrega = Column(Date)
+    estado = Column(String, default="activa")
+
+    nombre_usuario = Column(String, nullable=True)
+    nombre_libro = Column(String, nullable=True)
+
+    usuario = relationship("Usuario", back_populates="reservas")
+    libro = relationship("Libro", back_populates="reservas")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.fecha_entrega:
+            self.fecha_entrega = date.today() + timedelta(days=15)
+
 
 
 
