@@ -13,3 +13,19 @@ class Autor(Base):
 
     libros = relationship("Libro", back_populates="autor")
 
+class Libro(Base):
+    __tablename__ = "libros"
+
+    isbn = Column(String, primary_key=True, index=True)
+    titulo = Column(String, nullable=False)
+    anio_publicacion = Column(Integer, nullable=False)
+    num_copias = Column(Integer, nullable=False)
+    genero = Column(String, nullable=True)
+
+    autor_id = Column(Integer, ForeignKey("autores.id"), nullable=False)
+    autor = relationship("Autor", back_populates="libros")
+
+    reservas = relationship("Reserva", back_populates="libro")
+
+
+
