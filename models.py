@@ -27,5 +27,12 @@ class Libro(Base):
 
     reservas = relationship("Reserva", back_populates="libro")
 
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False)
+    reservas = relationship("Reserva", back_populates="usuario")
+
 
 
