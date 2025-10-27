@@ -1,59 +1,74 @@
-from sqlalchemy import Column, Integer, String, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Boolean, DateTime, func
 from sqlalchemy.orm import relationship
-from datetime import date, timedelta
 from database import Base
+
+libros_autores = Table(
+    "libros_autores",
+    Base.metadata,
+    Column("libro_id", Integer, ForeignKey("libros.id", ondelete="CASCADE")),
+    Column("autor_id", Integer, ForeignKey("autores.id", ondelete="CASCADE"))
+)
 
 class Autor(Base):
     __tablename__ = "autores"
 
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, nullable=False)
-    pais_origen = Column(String, nullable=True)
-    anio_nacimiento = Column(Integer, nullable=True)
+    nombre = Column(String, index=True, nullable=False)
+    pais = Column(String, index=True, nullable=False)
+    anio_nacimiento = Column(Integer, nullable=False)
+    activo = Column(Boolean, default=True)
 
-    libros = relationship("Libro", back_populates="autor")
+    libros = relationship(
+        "Libro",
+        secondary=libros_autores,
+        back_populates="autores"
+    )
+
 
 class Libro(Base):
     __tablename__ = "libros"
 
-    isbn = Column(String, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String, nullable=False)
-    anio_publicacion = Column(Integer, nullable=False)
-    num_copias = Column(Integer, nullable=False)
-    genero = Column(String, nullable=True)
+    isbn = Column(String, unique=True, index=True)
+    anio_publicacion = Column(Integer)
+    copias_disponibles = Column(Integer, default=1)
+    cantidad_autores = Column(Integer, default=0)  # ← nuevo campo
+    activo = Column(Boolean, default=True)
 
-    autor_id = Column(Integer, ForeignKey("autores.id"), nullable=False)
-    autor = relationship("Autor", back_populates="libros")
+    autores = relationship(
+        "Autor",
+        secondary=libros_autores,
+        back_populates="libros"
+    )
 
-    reservas = relationship("Reserva", back_populates="libro")
+    reservas = relationship("Reserva", back_populates="libro", cascade="all, delete")
+
 
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
-    reservas = relationship("Reserva", back_populates="usuario")
+    codigo_unico = Column(String, unique=True, nullable=False)
+    activo = Column(Boolean, default=True)
+
+    reservas = relationship("Reserva", back_populates="usuario", cascade="all, delete")
+
+
 class Reserva(Base):
     __tablename__ = "reservas"
 
-    id_reserva = Column(Integer, primary_key=True, index=True)
-    id_usuario = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
-    isbn_libro = Column(String, ForeignKey("libros.isbn"), nullable=False)
-    fecha_reserva = Column(Date, default=date.today)
-    fecha_entrega = Column(Date)
+    id = Column(Integer, primary_key=True, index=True)
+    id_usuario = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"))
+    isbn_libro = Column(String, ForeignKey("libros.isbn", ondelete="CASCADE"))
+    fecha_reserva = Column(DateTime(timezone=True), server_default=func.now())
+    fecha_entrega = Column(DateTime(timezone=True))
     estado = Column(String, default="activa")
+    activo = Column(Boolean, default=True)
 
     nombre_usuario = Column(String, nullable=True)
     nombre_libro = Column(String, nullable=True)
 
     usuario = relationship("Usuario", back_populates="reservas")
     libro = relationship("Libro", back_populates="reservas")
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if not self.fecha_entrega:
-            self.fecha_entrega = date.today() + timedelta(days=15)
-
-
-
-
