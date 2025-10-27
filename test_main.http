@@ -1,0 +1,116 @@
+### Crear autor
+POST http://127.0.0.1:8000/autores/
+Content-Type: application/json
+
+{
+  "nombre": "Isabel Allende",
+  "pais": "Chile",
+  "anio_nacimiento": 1942
+}
+
+### Listar autores
+GET http://127.0.0.1:8000/autores/
+
+### Obtener libros de un autor por ID
+GET http://127.0.0.1:8000/autores/1/libros
+
+### Actualizar autor
+PUT http://127.0.0.1:8000/autores/1
+Content-Type: application/json
+
+{
+  "nombre": "Gabriel G. Marquez",
+  "pais": "Colombia",
+  "anio_nacimiento": 1927
+}
+
+### Eliminar autor
+DELETE http://127.0.0.1:8000/autores/1
+
+
+### Crear libro
+POST http://127.0.0.1:8000/libros/
+Content-Type: application/json
+
+{
+  "titulo": "La casa de los espíritus",
+  "isbn": "9780553383805",
+  "anio_publicacion": 1982,
+  "copias_disponibles": 30,
+  "autores": ["Isabel Allende"]
+}
+
+### Listar libros
+GET http://127.0.0.1:8000/libros/
+
+### Obtener libro por ID
+GET http://127.0.0.1:8000/libros/3
+
+### Actualizar libro
+PUT http://127.0.0.1:8000/libros/1
+Content-Type: application/json
+
+{
+  "titulo": "El Amor en Tiempos de Colera",
+  "copias_disponibles": 50
+}
+
+### Eliminar libro
+DELETE http://127.0.0.1:8000/libros/1
+
+
+### Crear usuario
+POST http://127.0.0.1:8000/usuarios/
+Content-Type: application/json
+
+{
+  "nombre": "Felipe",
+  "codigo_unico": "118"
+}
+
+### Listar usuarios
+GET http://127.0.0.1:8000/usuarios/
+
+### Obtener usuario por ID
+GET http://127.0.0.1:8000/usuarios/1
+
+### Actualizar usuario
+PUT http://127.0.0.1:8000/usuarios/3
+Content-Type: application/json
+
+{
+  "nombre": "Felipe Prada",
+  "codigo_unico": "118"
+}
+
+### Eliminar usuario
+DELETE http://127.0.0.1:8000/usuarios/1
+
+
+
+### Crear reserva
+POST http://127.0.0.1:8000/reservas/
+Content-Type: application/json
+
+{
+  "id_usuario": 3,
+  "isbn_libro": "9780553383805"
+}
+
+### Listar reservas
+GET http://127.0.0.1:8000/reservas/
+
+### Obtener reserva por ID
+GET http://127.0.0.1:8000/reservas/1
+
+### Actualizar estado de reserva
+PUT http://127.0.0.1:8000/reservas/1
+Content-Type: application/json
+
+{
+  "estado": "finalizada"
+}
+
+### Eliminar reserva
+DELETE http://127.0.0.1:8000/reservas/1
+
