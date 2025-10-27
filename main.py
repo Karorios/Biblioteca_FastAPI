@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
-
 from database import Base, engine
 from models import *
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Sistema de Gestión de Biblioteca")

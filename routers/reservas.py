@@ -1,42 +1,68 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from database import get_db
 from models import Reserva, Usuario, Libro
-from pydantic import BaseModel
+from database import get_db
 
 router = APIRouter(prefix="/reservas", tags=["Reservas"])
 
-# Modelo Pydantic para crear reserva
-class ReservaCreate(BaseModel):
-    id_usuario: int
-    isbn_libro: str
-
-# Crear reserva
 @router.post("/")
-def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
-    usuario = db.query(Usuario).filter(Usuario.id == reserva.id_usuario, Usuario.activo == True).first()
-    libro = db.query(Libro).filter(Libro.isbn == reserva.isbn_libro, Libro.activo == True).first()
+def crear_reserva(usuario_id: int, isbn: str, db: Session = Depends(get_db)):
+    """
+    Crea una reserva usando el ID del usuario y el ISBN del libro.
+    - El usuario debe estar activo.
+    - Máximo 3 reservas activas por usuario.
+    """
 
+    # Verificar existencia del usuario activo
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id, Usuario.activo == True).first()
     if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    if not libro:
-        raise HTTPException(status_code=404, detail="Libro no encontrado")
-    if libro.copias_disponibles <= 0:
-        raise HTTPException(status_code=400, detail="No hay copias disponibles para reservar")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado o inactivo")
 
+    # Verificar existencia del libro
+    libro = db.query(Libro).filter(Libro.isbn == isbn).first()
+    if not libro:
+        raise HTTPException(status_code=404, detail="Libro no encontrado con ese ISBN")
+
+    # Verificar disponibilidad
+    if libro.copias_disponibles <= 0:
+        raise HTTPException(status_code=400, detail="No hay copias disponibles de este libro")
+
+    # Contar reservas activas del usuario
+    reservas_activas = db.query(Reserva).filter(
+        Reserva.id_usuario == usuario.id,
+        Reserva.estado == "activo",
+        Reserva.activo == True
+    ).count()
+
+    if reservas_activas >= 3:
+        raise HTTPException(status_code=400, detail="El usuario ya tiene el máximo de 3 reservas activas")
+
+    # Evitar duplicado del mismo libro
+    reserva_existente = db.query(Reserva).filter(
+        Reserva.id_usuario == usuario.id,
+        Reserva.isbn_libro == libro.isbn,
+        Reserva.estado == "activo",
+        Reserva.activo == True
+    ).first()
+
+    if reserva_existente:
+        raise HTTPException(status_code=400, detail="El usuario ya tiene una reserva activa para este libro")
+
+    # Crear la reserva con fecha de entrega 7 días después
     fecha_reserva = datetime.now()
-    fecha_entrega = fecha_reserva + timedelta(days=15)
+    fecha_entrega = fecha_reserva + timedelta(days=7)
 
     nueva_reserva = Reserva(
-        id_usuario=reserva.id_usuario,
-        isbn_libro=reserva.isbn_libro,
+        id_usuario=usuario.id,
+        isbn_libro=libro.isbn,
         fecha_reserva=fecha_reserva,
         fecha_entrega=fecha_entrega,
-        estado="activa",
+        estado="activo",
         activo=True
     )
 
+    # Reducir copias disponibles
     libro.copias_disponibles -= 1
 
     db.add(nueva_reserva)
@@ -47,35 +73,48 @@ def crear_reserva(reserva: ReservaCreate, db: Session = Depends(get_db)):
         "mensaje": "Reserva creada exitosamente",
         "reserva": {
             "id": nueva_reserva.id,
-            "usuario": {"id": usuario.id, "nombre": usuario.nombre, "codigo_unico": usuario.codigo_unico},
-            "libro": {"isbn": libro.isbn, "titulo": libro.titulo},
-            "fecha_reserva": fecha_reserva,
-            "fecha_entrega": fecha_entrega,
+            "id_usuario": usuario.id,
+            "nombre_usuario": usuario.nombre,
+            "isbn": libro.isbn,
+            "titulo_libro": libro.titulo,
+            "fecha_reserva": nueva_reserva.fecha_reserva,
+            "fecha_entrega": nueva_reserva.fecha_entrega,
             "estado": nueva_reserva.estado
         }
     }
 
-# Listar todas las reservas
+
 @router.get("/")
 def listar_reservas(db: Session = Depends(get_db)):
+    """
+    Lista todas las reservas activas mostrando nombre de usuario y título del libro.
+    """
     reservas = db.query(Reserva).filter(Reserva.activo == True).all()
+    if not reservas:
+        raise HTTPException(status_code=404, detail="No hay reservas activas registradas")
+
     resultado = []
     for r in reservas:
         usuario = db.query(Usuario).filter(Usuario.id == r.id_usuario).first()
         libro = db.query(Libro).filter(Libro.isbn == r.isbn_libro).first()
         resultado.append({
             "id": r.id,
-            "usuario": {"id": usuario.id, "nombre": usuario.nombre} if usuario else None,
-            "libro": {"isbn": libro.isbn, "titulo": libro.titulo} if libro else None,
+            "id_usuario": r.id_usuario,
+            "nombre_usuario": usuario.nombre if usuario else None,
+            "isbn": r.isbn_libro,
+            "titulo_libro": libro.titulo if libro else None,
             "fecha_reserva": r.fecha_reserva,
             "fecha_entrega": r.fecha_entrega,
             "estado": r.estado
         })
     return resultado
 
-# Obtener reserva por ID
+
 @router.get("/{id_reserva}")
 def obtener_reserva(id_reserva: int, db: Session = Depends(get_db)):
+    """
+    Obtiene una reserva específica con datos del usuario y el libro.
+    """
     reserva = db.query(Reserva).filter(Reserva.id == id_reserva, Reserva.activo == True).first()
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
@@ -85,44 +124,65 @@ def obtener_reserva(id_reserva: int, db: Session = Depends(get_db)):
 
     return {
         "id": reserva.id,
-        "usuario": {"id": usuario.id, "nombre": usuario.nombre} if usuario else None,
-        "libro": {"isbn": libro.isbn, "titulo": libro.titulo} if libro else None,
+        "id_usuario": reserva.id_usuario,
+        "nombre_usuario": usuario.nombre if usuario else None,
+        "isbn": reserva.isbn_libro,
+        "titulo_libro": libro.titulo if libro else None,
         "fecha_reserva": reserva.fecha_reserva,
         "fecha_entrega": reserva.fecha_entrega,
         "estado": reserva.estado
     }
 
-# Modelo para actualizar estado
-class ReservaUpdate(BaseModel):
-    estado: str
 
-# Actualizar estado de reserva
 @router.put("/{id_reserva}")
-def actualizar_reserva(id_reserva: int, reserva: ReservaUpdate, db: Session = Depends(get_db)):
+def actualizar_reserva(
+    id_reserva: int,
+    estado: str = Form(..., description="Nuevo estado de la reserva (activo, entregada, cancelada)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el estado de una reserva (activo, entregada o cancelada).
+    """
     db_reserva = db.query(Reserva).filter(Reserva.id == id_reserva, Reserva.activo == True).first()
     if not db_reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
-    db_reserva.estado = reserva.estado
+    if estado.lower() not in ["activo", "entregada", "cancelada"]:
+        raise HTTPException(status_code=400, detail="Estado inválido. Use: activo, entregada o cancelada")
+
+    db_reserva.estado = estado.lower()
+
+    # Si se entrega o cancela, se libera una copia del libro
+    if db_reserva.estado in ["entregada", "cancelada"]:
+        libro = db.query(Libro).filter(Libro.isbn == db_reserva.isbn_libro).first()
+        if libro:
+            libro.copias_disponibles += 1
+
     db.commit()
     db.refresh(db_reserva)
 
-    return {"mensaje": "Reserva actualizada", "estado": db_reserva.estado}
+    return {
+        "mensaje": "Reserva actualizada correctamente",
+        "id": db_reserva.id,
+        "estado": db_reserva.estado
+    }
 
-# Eliminar reserva (lógica)
+
 @router.delete("/{id_reserva}")
 def eliminar_reserva(id_reserva: int, db: Session = Depends(get_db)):
+    """
+    Elimina una reserva y libera la copia si estaba activa.
+    """
     reserva = db.query(Reserva).filter(Reserva.id == id_reserva, Reserva.activo == True).first()
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
     reserva.activo = False
 
-    # Devolver copia al libro si estaba activa
-    if reserva.estado == "activa":
+    if reserva.estado == "activo":
         libro = db.query(Libro).filter(Libro.isbn == reserva.isbn_libro).first()
         if libro:
             libro.copias_disponibles += 1
 
     db.commit()
-    return {"mensaje": "Reserva eliminada lógicamente", "id_reserva": reserva.id}
+    return {"mensaje": "Reserva eliminada ", "id_reserva": reserva.id}

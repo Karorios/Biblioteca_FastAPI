@@ -1,168 +1,153 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Form, Path
 from sqlalchemy.orm import Session
+from typing import Optional
 from models import Libro, Autor
 from database import get_db
-from pydantic import BaseModel
-
-
-class LibroCreate(BaseModel):
-    titulo: str
-    isbn: str
-    anio_publicacion: int
-    copias_disponibles: int
-    autores: List[str]  # autor1, autor2, autor3 en una lista
-
 
 router = APIRouter(prefix="/libros", tags=["Libros"])
 
 
 @router.post("/")
-def crear_libro(libro: LibroCreate, db: Session = Depends(get_db)):
-    # Validar duplicado ISBN
-    if db.query(Libro).filter(Libro.isbn == libro.isbn).first():
+def crear_libro(
+    titulo: str = Form(..., min_length=3, max_length=100, description="Título del libro (3 a 100 caracteres)"),
+    isbn: str = Form(..., min_length=10, max_length=20, description="Código ISBN único del libro"),
+    anio_publicacion: int = Form(..., ge=1500, le=2025, description="Año de publicación entre 1500 y 2025"),
+    copias_disponibles: int = Form(..., ge=1, le=1000, description="Número de copias disponibles (1-1000)"),
+    autores: str = Form(..., min_length=3, description="Nombres de los autores separados por coma"),
+    db: Session = Depends(get_db)
+):
+    """
+    Crea un nuevo libro validando duplicados, año y autores existentes.
+    """
+
+    if db.query(Libro).filter(Libro.isbn == isbn).first():
         raise HTTPException(status_code=400, detail="Ya existe un libro con ese ISBN")
 
-    # Buscar autores existentes
-    autores = db.query(Autor).filter(Autor.nombre.in_(libro.autores), Autor.activo == True).all()
-    if not autores or len(autores) != len(libro.autores):
+    lista_autores = [a.strip() for a in autores.split(",") if a.strip()]
+    if not lista_autores:
+        raise HTTPException(status_code=400, detail="Debe indicar al menos un autor válido")
+
+    autores_encontrados = db.query(Autor).filter(Autor.nombre.in_(lista_autores)).all()
+
+    if len(autores_encontrados) != len(lista_autores):
         raise HTTPException(status_code=400, detail="Uno o más autores no existen o están inactivos")
 
     nuevo_libro = Libro(
-        titulo=libro.titulo,
-        isbn=libro.isbn,
-        anio_publicacion=libro.anio_publicacion,
-        copias_disponibles=libro.copias_disponibles,
-        autores=autores
+        titulo=titulo,
+        isbn=isbn,
+        anio_publicacion=anio_publicacion,
+        copias_disponibles=copias_disponibles,
+        autores=autores_encontrados
     )
 
     db.add(nuevo_libro)
     db.commit()
     db.refresh(nuevo_libro)
 
-    return {
-        "mensaje": f"Libro '{nuevo_libro.titulo}' creado correctamente",
-        "isbn": nuevo_libro.isbn,
-        "anio_publicacion": nuevo_libro.anio_publicacion,
-        "copias_disponibles": nuevo_libro.copias_disponibles,
-        "autores_asociados": [autor.nombre for autor in autores]
-    }
+    return {"mensaje": f"Libro '{titulo}' creado correctamente"}
+
 
 @router.get("/")
-def listar_libros(anio: int = None, db: Session = Depends(get_db)):
-    query = db.query(Libro).filter(Libro.activo == True)
-
-    if anio:
-        query = query.filter(Libro.anio_publicacion == anio)
-
-    libros = query.all()
-
+def listar_libros(db: Session = Depends(get_db)):
+    """
+    Lista todos los libros registrados en la base de datos con sus autores y disponibilidad.
+    """
+    libros = db.query(Libro).all()
     if not libros:
-        detalle = f"No se encontró ningún libro registrado del año {anio}" if anio else "No hay libros registrados actualmente en la base de datos"
-        raise HTTPException(status_code=404, detail=detalle)
+        raise HTTPException(status_code=404, detail="No hay libros registrados")
 
-    resultado = []
-    for libro in libros:
-        autores_activos = [autor.nombre for autor in libro.autores if autor.activo]
-        resultado.append({
+    return [
+        {
             "id": libro.id,
             "titulo": libro.titulo,
             "isbn": libro.isbn,
             "anio_publicacion": libro.anio_publicacion,
             "copias_disponibles": libro.copias_disponibles,
-            "cantidad_autores": len(autores_activos),
-            "autores": autores_activos
-        })
+            "activo": libro.activo,
+            "autores": [{"nombre": a.nombre, "activo": a.activo} for a in libro.autores]
+        }
+        for libro in libros
+    ]
 
-    return resultado
 
+@router.get("/buscar_por_anio/{anio_publicacion}")
+def buscar_libros_por_anio(
+    anio_publicacion: int = Path(..., description="Año de publicación del libro"),
+    db: Session = Depends(get_db)
+):
+    """
+    Busca todos los libros publicados en un año específico.
+    """
+    libros = db.query(Libro).filter(Libro.anio_publicacion == anio_publicacion).all()
+    if not libros:
+        raise HTTPException(status_code=404, detail=f"No se encontraron libros del año {anio_publicacion}")
 
-@router.get("/{libro_id}")
-def obtener_libro_con_autores(libro_id: int, db: Session = Depends(get_db)):
-    libro = db.query(Libro).filter(Libro.id == libro_id, Libro.activo == True).first()
-
-    if not libro:
-        raise HTTPException(status_code=404, detail="Libro no encontrado")
-
-    # Verificamos si tiene autores asociados
-    if not libro.autores:
-        autores_info = "Este libro no tiene autores registrados"
-    else:
-        autores_info = [
-            {
-                "id": autor.id,
-                "nombre": autor.nombre,
-                "pais": autor.pais,
-                "activo": autor.activo
-            }
-            for autor in libro.autores
-        ]
-
-    return {
-        "id": libro.id,
-        "titulo": libro.titulo,
-        "isbn": libro.isbn,
-        "anio_publicacion": libro.anio_publicacion,
-        "copias_disponibles": libro.copias_disponibles,
-        "autores": autores_info
-    }
+    return libros
 
 
 @router.put("/{libro_id}")
 def actualizar_libro(
     libro_id: int,
-    titulo: Optional[str] = None,
-    copias_disponibles: Optional[int] = None,
-    autor1: Optional[str] = Query(None, description="Nombre del autor principal (opcional)"),
-    autor2: Optional[str] = Query(None, description="Nombre del segundo autor (opcional)"),
-    autor3: Optional[str] = Query(None, description="Nombre del tercer autor (opcional)"),
+    titulo: Optional[str] = Form(None, min_length=3, max_length=100, description="Nuevo título del libro"),
+    isbn: Optional[str] = Form(None, min_length=10, max_length=20, description="Nuevo código ISBN"),
+    anio_publicacion: Optional[int] = Form(None, ge=1500, le=2025, description="Nuevo año de publicación"),
+    copias_disponibles: Optional[int] = Form(None, ge=0, le=1000, description="Cantidad de copias disponibles (0-1000)"),
+    autores: Optional[str] = Form(None, description="Nuevos autores separados por coma"),
     db: Session = Depends(get_db)
 ):
-    libro = db.query(Libro).filter(Libro.id == libro_id, Libro.activo == True).first()
+    """
+    Actualiza la información de un libro existente. Permite modificar título, ISBN, año, copias y autores.
+    """
+    libro = db.query(Libro).filter(Libro.id == libro_id).first()
     if not libro:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
 
+    if isbn and db.query(Libro).filter(Libro.isbn == isbn, Libro.id != libro_id).first():
+        raise HTTPException(status_code=400, detail="Ya existe otro libro con ese ISBN")
+
     if titulo:
         libro.titulo = titulo
-
+    if isbn:
+        libro.isbn = isbn
+    if anio_publicacion:
+        libro.anio_publicacion = anio_publicacion
     if copias_disponibles is not None:
-        if copias_disponibles < 0:
-            raise HTTPException(status_code=400, detail="Las copias no pueden ser negativas")
         libro.copias_disponibles = copias_disponibles
 
-    nombres_autores = []
-    if autor1:
-        nombres_autores.append(autor1)
-    if autor2:
-        nombres_autores.append(autor2)
-    if autor3:
-        nombres_autores.append(autor3)
+    if autores:
+        nombres_autores = [a.strip() for a in autores.split(",") if a.strip()]
+        autores_nuevos = db.query(Autor).filter(Autor.nombre.in_(nombres_autores)).all()
+        if len(autores_nuevos) != len(nombres_autores):
+            raise HTTPException(status_code=400, detail="Algunos autores no existen o están inactivos")
+        libro.autores = autores_nuevos
 
-    if nombres_autores:
-        autores = db.query(Autor).filter(Autor.nombre.in_(nombres_autores), Autor.activo == True).all()
-        if len(autores) != len(nombres_autores):
-            raise HTTPException(
-                status_code=400,
-                detail="Uno o más autores no existen o están inactivos. Verifica los nombres ingresados."
-            )
-        libro.autores = autores
+    db.commit()
+    db.refresh(libro)
+
+    return {"mensaje": f"Libro '{libro.titulo}' actualizado correctamente"}
+
+
+@router.delete("/{libro_id}")
+def eliminar_libro(libro_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina una copia de un libro o lo marca como inactivo si no quedan copias.
+    """
+    libro = db.query(Libro).filter(Libro.id == libro_id).first()
+    if not libro:
+        raise HTTPException(status_code=404, detail="Libro no encontrado")
+
+    if libro.copias_disponibles > 0:
+        libro.copias_disponibles -= 1
+        if libro.copias_disponibles == 0:
+            libro.activo = False
+    else:
+        libro.activo = False
 
     db.commit()
     db.refresh(libro)
 
     return {
-        "mensaje": f"Libro '{libro.titulo}' actualizado correctamente",
-        "isbn": libro.isbn,
-        "anio_publicacion": libro.anio_publicacion,
-        "copias_disponibles": libro.copias_disponibles,
-        "autores_asociados": [autor.nombre for autor in libro.autores]
+        "mensaje": f"Libro '{libro.titulo}' actualizado tras eliminación de una copia.",
+        "copias_restantes": libro.copias_disponibles,
+        "activo": libro.activo
     }
-
-@router.delete("/{libro_id}")
-def eliminar_libro(libro_id: int, db: Session = Depends(get_db)):
-    libro = db.query(Libro).filter(Libro.id == libro_id, Libro.activo == True).first()
-    if not libro:
-        raise HTTPException(status_code=404, detail="Libro no encontrado")
-    libro.activo = False
-    db.commit()
-    return {"mensaje": f"Libro '{libro.titulo}' marcado como inactivo"}
