@@ -135,3 +135,4 @@ Registra las solicitudes de los usuarios para reservar un libro en una fecha det
 |--------|------|-------------|
 | GET | / | Ruta raíz de prueba |
 | GET | /endpoints | Listar todos los endpoints disponibles |
+
